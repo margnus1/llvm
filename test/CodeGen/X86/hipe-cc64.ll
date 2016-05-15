@@ -83,9 +83,22 @@ define cc 11 void @baz() nounwind {
   ret void
 }
 
+define cc 11 { i64, i64, i64 } @tailcaller(i64, i64) #0 {
+  ; CHECK:      movl	$15, %esi
+  ; CHECK-NEXT: movl	$31, %edx
+  ; CHECK-NEXT: movl	$47, %ecx
+  ; CHECK-NEXT: movl	$63, %r8d
+  ; CHECK-NEXT: popq	%rax
+  ; CHECK-NEXT: jmp	tailcallee              # TAILCALL
+  %3 = tail call cc11 { i64, i64, i64 } @tailcallee(i64 %0, i64 %1, i64 15,
+     i64 31, i64 47, i64 63, i64 79) #1
+  ret { i64, i64, i64 } %3
+}
+
 !hipe.literals = !{ !0, !1, !2 }
 !0 = !{ !"P_NSP_LIMIT", i32 160 }
 !1 = !{ !"X86_LEAF_WORDS", i32 24 }
 !2 = !{ !"AMD64_LEAF_WORDS", i32 24 }
 @clos = external constant i64
 declare cc 11 void @bar(i64, i64, i64, i64, i64, i64)
+declare cc 11 { i64, i64, i64 } @tailcallee(i64, i64, i64, i64, i64, i64, i64)

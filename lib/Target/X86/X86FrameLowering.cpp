@@ -425,9 +425,15 @@ int X86FrameLowering::mergeSPUpdates(MachineBasicBlock &MBB,
              isReturnInstruction(MBBI->getOpcode())) {
     assert(doMergeWithPrevious);
     SmallSet<uint16_t, 8> Uses = getReturnInstructionUses(MBBI, TRI);
-    if (!Uses.count(PI->getOperand(0).getReg())) {
-      Offset +=  (Opc == X86::POP64r ? 8 : 4);
+    while ((Opc == X86::POP64r || Opc == X86::POP32r) &&
+           PI->getOperand(0).getReg() != X86::RIP &&
+           !Uses.count(PI->getOperand(0).getReg())) {
+      Offset += (Opc == X86::POP64r ? 8 : 4);
       MBB.erase(PI);
+      if (MBBI == MBB.begin())
+        break;
+      PI = std::prev(MBBI);
+      Opc = PI->getOpcode();
     }
   }
 

@@ -73,15 +73,17 @@ define cc 11 void @baz() nounwind {
   ret void
 }
 
-define cc 11 { i32, i32, i32 } @tailcaller(i32, i32) nounwind {
+; Sanity-check the tail call sequence. Number of arguments was chosen as to
+; expose a bug where the tail call sequence clobbered the stack.
+define cc 11 { i32, i32, i32 } @tailcaller(i32 %hp, i32 %p) nounwind {
   ; CHECK:      movl	$15, %eax
   ; CHECK-NEXT: movl	$31, %edx
   ; CHECK-NEXT: movl	$47, %ecx
   ; CHECK-NEXT: popl	%edi
   ; CHECK-NEXT: jmp	tailcallee
-  %3 = tail call cc11 { i32, i32, i32 } @tailcallee(i32 %0, i32 %1, i32 15,
+  %ret = tail call cc11 { i32, i32, i32 } @tailcallee(i32 %hp, i32 %p, i32 15,
      i32 31, i32 47, i32 63) nounwind
-  ret { i32, i32, i32 } %3
+  ret { i32, i32, i32 } %ret
 }
 
 !hipe.literals = !{ !0, !1, !2 }

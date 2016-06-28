@@ -142,44 +142,6 @@ static unsigned getLEArOpcode(unsigned IsLP64) {
   return IsLP64 ? X86::LEA64r : X86::LEA32r;
 }
 
-static bool isReturnInstruction(unsigned Opc) {
-  switch (Opc) {
-  default: return false;
-  case X86::RET:
-  case X86::RETL:
-  case X86::RETQ:
-  case X86::RETIL:
-  case X86::RETIQ:
-  case X86::TCRETURNdi:
-  case X86::TCRETURNri:
-  case X86::TCRETURNmi:
-  case X86::TCRETURNdi64:
-  case X86::TCRETURNri64:
-  case X86::TCRETURNmi64:
-  case X86::EH_RETURN:
-  case X86::EH_RETURN64:
-    return true;
-  }
-}
-
-static SmallSet<uint16_t, 8> getReturnInstructionUses(
-    MachineBasicBlock::iterator &MBBI,
-    const X86RegisterInfo *TRI) {
-  assert(isReturnInstruction(MBBI->getOpcode()));
-  SmallSet<uint16_t, 8> Uses;
-  for (unsigned i = 0, e = MBBI->getNumOperands(); i != e; ++i) {
-    MachineOperand &MO = MBBI->getOperand(i);
-    if (!MO.isReg() || MO.isDef())
-      continue;
-    unsigned Reg = MO.getReg();
-    if (!Reg)
-      continue;
-    for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
-      Uses.insert(*AI);
-  }
-  return Uses;
-}
-
 /// findDeadCallerSavedReg - Return a caller-saved register that isn't live
 /// when it reaches the "return" instruction. We can then pop a stack object
 /// to this register without worry about clobbering it.
@@ -195,14 +157,37 @@ static unsigned findDeadCallerSavedReg(MachineBasicBlock &MBB,
   const TargetRegisterClass &AvailableRegs = *TRI->getGPRsForTailCall(*MF);
 
   unsigned Opc = MBBI->getOpcode();
-  if (!isReturnInstruction(Opc)) {
-    return 0;
-  } else {
-    SmallSet<uint16_t, 8> Uses = getReturnInstructionUses(MBBI, TRI);
+  switch (Opc) {
+  default: return 0;
+  case X86::RET:
+  case X86::RETL:
+  case X86::RETQ:
+  case X86::RETIL:
+  case X86::RETIQ:
+  case X86::TCRETURNdi:
+  case X86::TCRETURNri:
+  case X86::TCRETURNmi:
+  case X86::TCRETURNdi64:
+  case X86::TCRETURNri64:
+  case X86::TCRETURNmi64:
+  case X86::EH_RETURN:
+  case X86::EH_RETURN64: {
+    SmallSet<uint16_t, 8> Uses;
+    for (unsigned i = 0, e = MBBI->getNumOperands(); i != e; ++i) {
+      MachineOperand &MO = MBBI->getOperand(i);
+      if (!MO.isReg() || MO.isDef())
+        continue;
+      unsigned Reg = MO.getReg();
+      if (!Reg)
+        continue;
+      for (MCRegAliasIterator AI(Reg, TRI, true); AI.isValid(); ++AI)
+        Uses.insert(*AI);
+    }
 
     for (auto CS : AvailableRegs)
       if (!Uses.count(CS) && CS != X86::RIP)
         return CS;
+  }
   }
 
   return 0;
@@ -420,21 +405,6 @@ int X86FrameLowering::mergeSPUpdates(MachineBasicBlock &MBB,
     Offset -= PI->getOperand(2).getImm();
     MBB.erase(PI);
     if (!doMergeWithPrevious) MBBI = NI;
-  } else if ((Opc == X86::POP64r || Opc == X86::POP32r) &&
-             PI->getOperand(0).getReg() != X86::RIP &&
-             isReturnInstruction(MBBI->getOpcode())) {
-    assert(doMergeWithPrevious);
-    SmallSet<uint16_t, 8> Uses = getReturnInstructionUses(MBBI, TRI);
-    while ((Opc == X86::POP64r || Opc == X86::POP32r) &&
-           PI->getOperand(0).getReg() != X86::RIP &&
-           !Uses.count(PI->getOperand(0).getReg())) {
-      Offset += (Opc == X86::POP64r ? 8 : 4);
-      MBB.erase(PI);
-      if (MBBI == MBB.begin())
-        break;
-      PI = std::prev(MBBI);
-      Opc = PI->getOpcode();
-    }
   }
 
   return Offset;
@@ -1502,6 +1472,7 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   MachineBasicBlock::iterator MBBI = MBB.getFirstTerminator();
+  unsigned RetOpcode = MBBI->getOpcode();
   DebugLoc DL;
   if (MBBI != MBB.end())
     DL = MBBI->getDebugLoc();
@@ -1650,15 +1621,20 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   if (NeedsWinCFI)
     BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_Epilogue));
 
-  // Add the return addr area delta back since we are not tail calling.
-  int Offset = -1 * X86FI->getTCReturnAddrDelta();
-  assert(Offset >= 0 && "TCDelta should never be positive");
-  if (Offset) {
-    MBBI = MBB.getFirstTerminator();
+  if (RetOpcode != X86::TCRETURNri && RetOpcode != X86::TCRETURNdi &&
+      RetOpcode != X86::TCRETURNmi &&
+      RetOpcode != X86::TCRETURNri64 && RetOpcode != X86::TCRETURNdi64 &&
+      RetOpcode != X86::TCRETURNmi64) {
+    // Add the return addr area delta back since we are not tail calling.
+    int Offset = -1 * X86FI->getTCReturnAddrDelta();
+    assert(Offset >= 0 && "TCDelta should never be positive");
+    if (Offset) {
+      MBBI = MBB.getFirstTerminator();
 
-    // Check for possible merge with preceding ADD instruction.
-    Offset += mergeSPUpdates(MBB, MBBI, true);
-    emitSPUpdate(MBB, MBBI, Offset, /*InEpilogue=*/true);
+      // Check for possible merge with preceding ADD instruction.
+      Offset += mergeSPUpdates(MBB, MBBI, true);
+      emitSPUpdate(MBB, MBBI, Offset, /*InEpilogue=*/true);
+    }
   }
 }
 

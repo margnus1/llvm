@@ -44,6 +44,7 @@ public:
   const X86Subtarget *STI;
   const X86InstrInfo *TII;
   const X86RegisterInfo *TRI;
+  const X86MachineFunctionInfo *X86FI;
   const X86FrameLowering *X86FL;
 
   bool runOnMachineFunction(MachineFunction &Fn) override;
@@ -58,9 +59,8 @@ public:
   }
 
 private:
-  bool ExpandMI(X86MachineFunctionInfo *X86FI, MachineBasicBlock &MBB,
-                MachineBasicBlock::iterator MBBI);
-  bool ExpandMBB(X86MachineFunctionInfo *X86FI, MachineBasicBlock &MBB);
+  bool ExpandMI(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI);
+  bool ExpandMBB(MachineBasicBlock &MBB);
 };
 char X86ExpandPseudo::ID = 0;
 } // End anonymous namespace.
@@ -68,8 +68,7 @@ char X86ExpandPseudo::ID = 0;
 /// If \p MBBI is a pseudo instruction, this method expands
 /// it to the corresponding (sequence of) actual instruction(s).
 /// \returns true if \p MBBI has been expanded.
-bool X86ExpandPseudo::ExpandMI(X86MachineFunctionInfo *X86FI,
-                               MachineBasicBlock &MBB,
+bool X86ExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator MBBI) {
   MachineInstr &MI = *MBBI;
   unsigned Opcode = MI.getOpcode();
@@ -238,15 +237,14 @@ bool X86ExpandPseudo::ExpandMI(X86MachineFunctionInfo *X86FI,
 
 /// Expand all pseudo instructions contained in \p MBB.
 /// \returns true if any expansion occurred for \p MBB.
-bool X86ExpandPseudo::ExpandMBB(X86MachineFunctionInfo *X86FI,
-                                MachineBasicBlock &MBB) {
+bool X86ExpandPseudo::ExpandMBB(MachineBasicBlock &MBB) {
   bool Modified = false;
 
   // MBBI may be invalidated by the expansion.
   MachineBasicBlock::iterator MBBI = MBB.begin(), E = MBB.end();
   while (MBBI != E) {
     MachineBasicBlock::iterator NMBBI = std::next(MBBI);
-    Modified |= ExpandMI(X86FI, MBB, MBBI);
+    Modified |= ExpandMI(MBB, MBBI);
     MBBI = NMBBI;
   }
 
@@ -254,15 +252,15 @@ bool X86ExpandPseudo::ExpandMBB(X86MachineFunctionInfo *X86FI,
 }
 
 bool X86ExpandPseudo::runOnMachineFunction(MachineFunction &MF) {
-  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   STI = &static_cast<const X86Subtarget &>(MF.getSubtarget());
   TII = STI->getInstrInfo();
   TRI = STI->getRegisterInfo();
+  X86FI = MF.getInfo<X86MachineFunctionInfo>();
   X86FL = STI->getFrameLowering();
 
   bool Modified = false;
   for (MachineBasicBlock &MBB : MF)
-    Modified |= ExpandMBB(X86FI, MBB);
+    Modified |= ExpandMBB(MBB);
   return Modified;
 }
 

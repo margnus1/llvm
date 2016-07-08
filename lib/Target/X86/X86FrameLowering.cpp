@@ -1467,6 +1467,13 @@ X86FrameLowering::getWinEHFuncletFrameSize(const MachineFunction &MF) const {
   return FrameSizeMinusRBP - CSSize;
 }
 
+static bool isTailCallOpcode(unsigned Opc) {
+    return Opc == X86::TCRETURNri || Opc == X86::TCRETURNdi ||
+        Opc == X86::TCRETURNmi ||
+        Opc == X86::TCRETURNri64 || Opc == X86::TCRETURNdi64 ||
+        Opc == X86::TCRETURNmi64;
+}
+
 void X86FrameLowering::emitEpilogue(MachineFunction &MF,
                                     MachineBasicBlock &MBB) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
@@ -1621,10 +1628,7 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   if (NeedsWinCFI)
     BuildMI(MBB, MBBI, DL, TII.get(X86::SEH_Epilogue));
 
-  if (RetOpcode != X86::TCRETURNri && RetOpcode != X86::TCRETURNdi &&
-      RetOpcode != X86::TCRETURNmi &&
-      RetOpcode != X86::TCRETURNri64 && RetOpcode != X86::TCRETURNdi64 &&
-      RetOpcode != X86::TCRETURNmi64) {
+  if (!isTailCallOpcode(RetOpcode)) {
     // Add the return addr area delta back since we are not tail calling.
     int Offset = -1 * X86FI->getTCReturnAddrDelta();
     assert(Offset >= 0 && "TCDelta should never be positive");
